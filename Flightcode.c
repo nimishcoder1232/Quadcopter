@@ -1,6 +1,2 @@
-#include <stdio.h>
-
-int main() {
-    printf("Hello, World!\n");
-    return 0;
-}
+#include <Wifi.h>
+#include <esp_now.h>
