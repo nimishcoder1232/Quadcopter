@@ -220,7 +220,6 @@ void loop{
 
     float t = input.throttle;
 
-    // quad-X mixing
     float m1 = t + outY + outX - outZ;
     float m2 = t + outY - outX + outZ;
     float m3 = t - outY + outX + outZ;
