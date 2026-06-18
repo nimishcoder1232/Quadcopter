@@ -34,6 +34,16 @@ void writeESC(int idx, float v){
     ledcWrite(ESC_PIN[idx],duty);
 }
 
+void setAllESC(float v) {
+    for (int i = 0; i < 4; i++) writeESC(i, v);
+}
+  
+void armESCs() {
+    setAllESC(0.0); delay(2000);
+    setAllESC(0.10); delay(2000);
+    setAllESC(0.0); delay(2000);
+}
+
 float q0 =1, q1 = 0, q2 = 0, q3 = 0;
 float gyroBiasX = 0, gyroBiasY = 0, gyroBiasZ = 0;
 
@@ -99,5 +109,127 @@ void updateOrientation(){
     angleX = atan2f(2.0f*(q0*q1 + q2*q3), 1.0f - 2.0f*(q1*q1 + q2*q2)) * RAD2DEG;
     angleY = asinf(constrain(2.0f*(q0*q2 - q1*q3), -1.0f, 1.0f)) * RAD2DEG;
     angleZ = atan2f(2.0f*(q0*q3 + q1*q2), 1.0f - 2.0f*(q2*q2 + q3*q3)) * RAD2DEG;
+}
+
+float ptermx = 0.02, itermx = 0.0, dtermX = 0.005; 
+float ptermy = 0.02, itermy = 0.0, dtermy = 0.005; 
+
+float Ztermp = 0.01;
+
+float pidintegx = 0, pidintegy = 0;
+float lasterrorx = 0, lasterrory = 0; 
+float dFiltX = 0, dFiltY = 0;
+const float D_filter = 0.2f;
+
+float pid(float setpoint, float measured, float &integ, float &lastErr, float &dFilt, float kp, float ki, float kd, float dt){
+    float err = setpoint - measured;
+    integ += err * dt;
+    integ = constrain(integ, -0.5f, 0.5f);
+    float dRaw = (err - lastErr) / dt;
+    dFilt += D_filter * (dRaw-dFilt);
+    lastErr = err;
+
+    return kp * err + ki*integ + kd*dFilt; 
+}
+
+void onRecieval(const esp_now_recv_info_t *info, const uint8_t *data, int len){
+    if (memcmp(info->src_addr, transmitter_mac, 6) != 0) {
+        return;
+    }
+
+    if (len != sizeof(controlcommand)){
+        return
+    }
+
+    memcpy(&input, data, sizeof(input));
+
+    lastPacketTime = millis();
+}
+
+unsigned long lastTime;
+
+void setup(){
+    Serial.begin(115200);
+    Wire.begin();
+
+    if (imu.beginI2C() != BMI2_OK){
+        Serial.println("BMI 270 NOT FOUND D:");
+        while (1) delay(10);
+    }
+
+    Serial.println("Calibrating GYRO stay still plz");
+
+    long n = 0;
+    
+    double sumX = 0, sumY = 0, sumZ = 0;
+
+    while (millis() - calStart < 1500) {
+        imu.getSensorData();
+        sumX += imu.data.gyroX;
+        sumY += imu.data.gyroY;
+        sumZ += imu.data.gyroZ;
+        n++;
+        delay(2);
+    }
+    BiasX = sumX / n;
+    BiasY = sumY / n;
+    BiasZ = sumZ / n;
+
+    Serial.println("sensor happy :D ");
+
+    Wifi.mode(WIFI_STA);
+    if (esp_now_init() != ESP_OK) {
+        Serial.println("ESP-NOW is screwed");
+        while (1) delay(10);
+    }
+    esp_now_register_recv_cb(onReceive);
+
+    for (int i = 0; i < 4; i++) ledcAttach(ESC_PIN[i], PWM_FREQ, PWM_RES);
+
+    armESCs();
+
+    Serial.print("Flight comptuer mac adress");
+    Serial.println(WiFi.macAddress());
+
+    lastTime = micros();
+    lastPacketTime = millis();
+}
+
+void loop{
+    unsigned long now = micros();
+    float dt = (now - lastTime)* 1e-6f;
+
+    lastTime = now;
+
+    if (dt <=0 || dt>0.5f) dt = 0.002f;
+
+    updateOrientation(dt);
+
+    if (millis() - lastPacketTime > 100){
+        input.arm = false;
+    }
+
+    if (!input.arm){
+        setAllESC(0.0);
+        pidintegx = 0; pidintegy = 0;
+    }
+
+    float outX = pid(input.x, angleX, pidintegx,lasterrorx, dFiltX,ptermx,itermx,dtermx);
+    float outy = pid(input.y, angleY, pidintegy,lasterrory, dFilty,ptermy,itermy,dtermy);
+    float outZ =Ztermp * (input.z - angleZ);
+
+    float t = input.throttle;
+
+    // quad-X mixing
+    float m1 = t + outY + outX - outZ;
+    float m2 = t + outY - outX + outZ;
+    float m3 = t - outY + outX + outZ;
+    float m4 = t - outY - outX - outZ;
+  
+    writeESC(0, m1);
+    writeESC(1, m2);
+    writeESC(2, m3);
+    writeESC(3, m4);
+
 
 }
