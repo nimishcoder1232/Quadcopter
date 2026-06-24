@@ -2,10 +2,68 @@
 #include <esp_now.h>
 #include <Wire.h>
 #include <SparkFun_BMI270_Arduino_Library.h>
-
 BMI270 imu;
 
+#include <TinyGPS++.h>
 // Transmitter Pairing 
+
+#define GPS_RX 18
+#define GPS_TX 17
+
+HardwareSerial GPSSerial(1);
+TinyGPSPlus gps; 
+// Home position
+double homeLat = 0.0;
+double homeLon = 0.0;
+bool homeSet = false;
+
+// Position relative to home (meters)
+float gpsX = 0.0f;   // +East
+float gpsY = 0.0f;   // +North
+
+void setHomePosition() {
+
+    if (!gps.location.isValid()) return;
+
+    homeLat = gps.location.lat();
+    homeLon = gps.location.lng();
+
+    homeSet = true;
+
+    Serial.println("GPS Home Position Set");
+}
+
+void updateGPS() {
+
+    while (GPSSerial.available()) {
+        gps.encode(GPSSerial.read());
+    }
+
+    // Set home automatically once a good fix exists
+    if (!homeSet &&
+        gps.location.isValid() &&
+        gps.satellites.value() >= 6) {
+
+        setHomePosition();
+    }
+
+    if (!homeSet) return;
+    if (!gps.location.isValid()) return;
+
+    double lat = gps.location.lat();
+    double lon = gps.location.lng();
+
+    const double EARTH_RADIUS = 6378137.0;
+
+    double dLat = (lat - homeLat) * DEG_TO_RAD;
+    double dLon = (lon - homeLon) * DEG_TO_RAD;
+
+    double avgLat =
+        ((lat + homeLat) * 0.5) * DEG_TO_RAD;
+
+    gpsX = EARTH_RADIUS * dLon * cos(avgLat);
+    gpsY = EARTH_RADIUS * dLat;
+}
 
 uint8_t transmitter_mac[6] = {0x24, 0x6F, 0x28, 0x87, 0x12, 0x35};
 
@@ -151,6 +209,8 @@ unsigned long lastTime;
 void setup(){
     Serial.begin(115200);
     Wire.begin();
+
+    GPSSerial.begin(9600, SERIAL_8N1, GPS_RX, GPS_TX);
 
     if (imu.beginI2C() != BMI2_OK){
         Serial.println("BMI 270 NOT FOUND D:");
