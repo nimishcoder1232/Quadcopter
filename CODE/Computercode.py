@@ -4,7 +4,7 @@ import serial
 import time
 
 
-transmitter = serial.Serial("N.A.", 9600)
+transmitter = serial.Serial("/dev/cu.usbmodem5A4E1110431", 9600)
 
 
 
@@ -12,7 +12,7 @@ pygame.init()
 pygame.joystick.init()
 
 if pygame.joystick.get_count() == 0:
-    print("No controler found")
+    print('no controler')
     quit()
 
 controler = pygame.joystick.Joystick(0)
