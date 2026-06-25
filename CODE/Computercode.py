@@ -3,8 +3,7 @@ import serial
 
 import time
 
-
-transmitter = serial.Serial("/dev/cu.usbmodem5A4E1110431", 9600)
+transmitter = serial.Serial("COM5", 9600)
 
 
 
@@ -19,14 +18,19 @@ controler = pygame.joystick.Joystick(0)
 
 print(controler.get_name())
 
+def deadband(x, d=0.2):
+    if abs(x) < d:
+        return 0
+    else:
+        return x
 
 while True:
     pygame.event.pump()
 
-    lx = controler.get_axis(0)
-    ly = controler.get_axis(1)
-    rx = controler.get_axis(2)
-    ry = controler.get_axis(3)
+    lx = deadband(controler.get_axis(0))
+    ly = deadband(-(controler.get_axis(1)))
+    rx = deadband(controler.get_axis(2))
+    ry = deadband(-(controler.get_axis(3)))
 
     message = f"{lx:.3f},{ly:.3f},{rx:.3f},{ry:.3f}\n"
 
