@@ -2,7 +2,7 @@ import pygame
 import serial
 import time
 
-transmitter = serial.Serial("COM5", 9600)
+transmitter = serial.Serial("COM6", 9600)
 
 pygame.init()
 pygame.joystick.init()
@@ -19,7 +19,7 @@ print(controller.get_name())
 def deadband(x, d=0.2):
     return 0 if abs(x) < d else x
 
-ABORT_BUTTON = 8  # 👈 changed to button 8
+ABORT_BUTTON = 7  # 👈 changed to button 8
 
 while True:
     pygame.event.pump()
