@@ -3,39 +3,49 @@
 #include <esp_now.h>
 
 typedef struct {
+  float throttle;
   float x;
-  float y; 
+  float y;
   float z;
-  float t;
   bool arm;
 } ControlPacket;
 
 ControlPacket packet;
 
-uint8_t receiverMac[] = {0xAA,0xBB,0xCC,0xDD,0xEE,0xFF};
+uint8_t receiverMac[] = {0x30, 0xED, 0xA0, 0xA4, 0xD8, 0x38};
 
-esp_now_peer_info_t peer; 
+esp_now_peer_info_t peer;
 
 float lx = 0;
 float ly = 0;
 float rx = 0;
 float ry = 0;
 
-unsigned long lastTime;
-
 float throttle = 0.0f;
 bool armed = true;
 
+unsigned long lastTime;
+
 void setup() {
   Serial.begin(9600);
+
   WiFi.mode(WIFI_STA);
+
+  if (esp_now_init() != ESP_OK) {
+    Serial.println("ESP-NOW init failed");
+    while (1);
+  }
 
   memcpy(peer.peer_addr, receiverMac, 6);
   peer.channel = 0;
   peer.encrypt = false;
 
-  esp_now_add_peer(&peer);
+  if (esp_now_add_peer(&peer) != ESP_OK) {
+    Serial.println("Failed to add peer");
+    while (1);
+  }
 
+  Serial.println("Transmitter Ready");
   lastTime = millis();
 }
 
@@ -43,54 +53,45 @@ void loop() {
   float dt = (millis() - lastTime) / 1000.0f;
   lastTime = millis();
 
-  // 🔴 HANDLE SERIAL INPUT
   if (Serial.available()) {
     String line = Serial.readStringUntil('\n');
     line.trim();
 
-    // 🛑 ABORT COMMAND
+    // Abort command from Python
     if (line == "ABORT") {
       Serial.println("ABORT RECEIVED");
 
       armed = false;
       throttle = 0.0f;
 
-      packet.x = 0;
-      packet.y = 0;
-      packet.z = 0;
-      packet.t = 0;
+      packet.throttle = 0.0f;
+      packet.x = 0.0f;
+      packet.y = 0.0f;
+      packet.z = 0.0f;
       packet.arm = false;
 
-      esp_now_send(receiverMac, (uint8_t*)&packet, sizeof(packet));
+      esp_now_send(receiverMac, (uint8_t *)&packet, sizeof(packet));
       return;
     }
 
-    // 🎮 NORMAL JOYSTICK DATA
-    sscanf(line.c_str(), "%f,%f,%f,%f", &lx, &ly, &rx, &ry);
+    // Parse joystick values: lx,ly,rx,ry
+    if (sscanf(line.c_str(), "%f,%f,%f,%f", &lx, &ly, &rx, &ry) == 4) {
 
-    if (armed) {
-      packet.x = lx * 20;     // roll angle target
-      packet.y = ly * 20;     // pitch angle target
-      packet.z = rx * 120;    // yaw rate
-      packet.t = throttle;    // throttle 0–1
-      packet.arm = true;
-    } else {
-      packet.x = 0;
-      packet.y = 0;
-      packet.z = 0;
-      packet.t = 0;
-      packet.arm = false;
-    }
+      // Throttle controlled by right stick Y
+      if (armed && fabs(ly) > 0.1f) {
+        throttle += ly * dt;
+      }
 
-    esp_now_send(receiverMac, (uint8_t*)&packet, sizeof(packet));
-  }
+      throttle = constrain(throttle, 0.0f, 0.8f);
 
-  // 🔼 throttle update (only if still armed)
-  if (armed) {
-    throttle = constrain(throttle, 0.0f, 0.8f);
+      packet.throttle = throttle;
+      packet.x = rx * 20.0f;      // X angle target (deg)
+      packet.y = ry * 20.0f;      // Y angle target (deg)
+      packet.z = lx * 60.0f;     // Z rate target (deg/s)
+      packet.arm = armed;
 
-    if (fabs(ry) > 0.1f) {
-      throttle += ry * dt;
+      esp_now_send(receiverMac, (uint8_t *)&packet, sizeof(packet));
     }
   }
+  delay(20);
 }
